@@ -42,7 +42,7 @@ void encoder1_zlicz()
     if(digitalRead(encoder1_pin_b))
       encoder1_licznik -= kierunek;
     else
-      encoder1_licznik -= kierunek;
+      encoder1_licznik += kierunek;
 
     // zapętlanie ze zmianą kierunku
     if(encoder1_licznik >= (pin_wyjscia_sizeof-1))
