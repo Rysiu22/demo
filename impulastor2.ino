@@ -1,9 +1,18 @@
 /*
 czas pisania
 2020.03.28 - 2,5h
-2020.03.29 - 0.5h
+2020.03.29 - 1,5h
 */
+// https://github.com/z3t0/Arduino-IRremote
+#include <IRremote.h>
+
+// https://github.com/rocketscream/Low-Power
 //#include <LowPower.h>
+
+// ustawienie odczytu podczerwieni
+#define irPin A0
+IRrecv irrecv(irPin);
+decode_results results;
 
 // konfiguracja pinów enkoderów
 int encoder1_pin_a = 2; //D2 pin pod przerwanie
@@ -17,8 +26,8 @@ int pin_wyjscia[] = {6,7,8,9,10,11,12,13};
 int pin_wyjscia_sizeof = (sizeof(pin_wyjscia)/sizeof(pin_wyjscia[0])); // nie zmieniać, samemu oblicza prawidłową wartość
 
 // przechowanie liczników
-int encoder1_licznik = 0;
-int encoder2_licznik = 0;
+int encoder1_licznik = -1;
+int encoder2_licznik = -1;
 unsigned long time1 = 0;
 unsigned long time2 = 0;
 
@@ -103,6 +112,51 @@ void ustaw_wyjscie(int kod)
   }
 }
 
+// reset programowy
+void(* resetFunc) (void) = 0;//declare reset function at address 0
+
+// polecenia dla podczerwieni
+void command(decode_results results)
+{    
+  switch(results.value)
+  {
+    // RC6 philips
+    case 0xC:
+    case 0x1000C:
+    // NEC TV
+    case 0xFD00FF:
+      resetFunc(); //call reset
+      break;
+
+    // RC6 philips
+    case 0x5B:
+    case 0x1005B:
+    // NEC TV
+    case 0xFD48B7:
+      if(++encoder1_licznik >= (pin_wyjscia_sizeof-1))
+        encoder1_licznik = (pin_wyjscia_sizeof-1);
+      ustaw_wyjscie(encoder1_licznik);
+      break;
+
+    // RC6 philips
+    case 0x5A:
+    case 0x1005A:
+    // NEC TV
+    case 0xFD8877:
+      if(--encoder1_licznik <= 0)
+        encoder1_licznik = 0;
+      ustaw_wyjscie(encoder1_licznik);
+      break;
+
+    case 0xFFFFFFFF:
+      // powtórz ostatnie polecenie
+      break;
+
+    default:
+      break;
+  }
+};
+
 // info o kompilacji wgrywanego projektu
 void display_Running_Sketch (void)
 {
@@ -133,8 +187,10 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(encoder2_pin_a), encoder2_zlicz, FALLING);
 
   Serial.begin(9600);
+  delay(100);
   display_Running_Sketch();
-  delay(1000);
+
+  irrecv.enableIRIn();
 
   time1 = millis();
   time2 = millis();
@@ -147,6 +203,30 @@ void loop() {
     Serial.println(Serial.readString());
   }
 
-  delay(1000);
-  //LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
+   if (irrecv.decode(&results)) 
+   {
+      if (results.decode_type == NEC) {
+        Serial.print("NEC: ");
+      } else if (results.decode_type == SONY) {
+        Serial.print("SONY: ");
+      } else if (results.decode_type == RC5) {
+        Serial.print("RC5: ");
+      } else if (results.decode_type == RC6) {
+        Serial.print("RC6: ");
+      } else if (results.decode_type == UNKNOWN) {
+        Serial.print("UNKNOWN: ");
+      }
+
+      Serial.print("0x");
+      Serial.println(results.value, HEX);
+
+      command(results);
+
+      delay(250);
+      //LowPower.powerDown(SLEEP_250MS, ADC_OFF, BOD_OFF);
+      irrecv.resume();
+   }
+
+   delay(50);
+  //LowPower.powerDown(SLEEP_60MS, ADC_OFF, BOD_OFF);
 }
