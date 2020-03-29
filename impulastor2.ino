@@ -1,7 +1,9 @@
 /*
 czas pisania
 2020.03.28 - 2,5h
+2020.03.29 - 0.5h
 */
+//#include <LowPower.h>
 
 // konfiguracja pinów enkoderów
 int encoder1_pin_a = 2; //D2 pin pod przerwanie
@@ -17,46 +19,73 @@ int pin_wyjscia_sizeof = (sizeof(pin_wyjscia)/sizeof(pin_wyjscia[0])); // nie zm
 // przechowanie liczników
 int encoder1_licznik = 0;
 int encoder2_licznik = 0;
+unsigned long time1 = 0;
+unsigned long time2 = 0;
 
 // funkcje wywoływane podczas przerwania
 void encoder1_zlicz()
 {
-  // zliczanie impulsów
-  if(digitalRead(encoder1_pin_b))
-    encoder1_licznik--;
-  else
-    encoder1_licznik++;
+  if((millis() - time1) > 50)
+  {
+    static int kierunek = 1;
+    
+    // zliczanie impulsów
+    if(digitalRead(encoder1_pin_b))
+      encoder1_licznik -= kierunek;
+    else
+      encoder1_licznik -= kierunek;
+
+    // zapętlanie ze zmianą kierunku
+    if(encoder1_licznik >= (pin_wyjscia_sizeof-1))
+    {
+      kierunek = -kierunek;
+      encoder1_licznik = (pin_wyjscia_sizeof-1);
+    }
+    if(encoder1_licznik <= 0)
+    {
+      kierunek = -kierunek;
+      encoder1_licznik = 0;
+    }
   
-  Serial.print("A");
-  Serial.println(encoder1_licznik);
+    // ustawienie wyjść
+    ustaw_wyjscie(encoder1_licznik);
+
+    Serial.print("A");
+    Serial.println(encoder1_licznik);
+  }
+  time1 = millis();
 }
 
 void encoder2_zlicz()
 {
-  static int kierunek = 1;
-  // zliczanie impulsów
-  if(digitalRead(encoder2_pin_b))
-    encoder2_licznik -= kierunek;
-  else
-    encoder2_licznik += kierunek;
-
-  // zapętlanie ze zmianą kierunku
-  if(encoder2_licznik >= (pin_wyjscia_sizeof-1))
+  if((millis() - time2) > 50)
   {
-    kierunek = -kierunek;
-    encoder2_licznik = (pin_wyjscia_sizeof-1);
+    static int kierunek = 1;
+    // zliczanie impulsów
+    if(digitalRead(encoder2_pin_b))
+      encoder2_licznik -= kierunek;
+    else
+      encoder2_licznik += kierunek;
+  
+    // zapętlanie ze zmianą kierunku
+    if(encoder2_licznik >= (pin_wyjscia_sizeof-1))
+    {
+      kierunek = -kierunek;
+      encoder2_licznik = (pin_wyjscia_sizeof-1);
+    }
+    if(encoder2_licznik <= 0)
+    {
+      kierunek = -kierunek;
+      encoder2_licznik = 0;
+    }
+  
+    // ustawienie wyjść
+    ustaw_wyjscie(encoder2_licznik);
+  
+    Serial.print("B");
+    Serial.println(encoder2_licznik);
   }
-  if(encoder2_licznik <= 0)
-  {
-    kierunek = -kierunek;
-    encoder2_licznik = 0;
-  }
-
-  // ustawienie wyjść
-  ustaw_wyjscie(encoder2_licznik);
-
-  Serial.print("B");
-  Serial.println(encoder2_licznik);
+  time2 = millis();
 }
 
 void ustaw_wyjscie(int kod)
@@ -105,9 +134,19 @@ void setup() {
 
   Serial.begin(9600);
   display_Running_Sketch();
+  delay(1000);
+
+  time1 = millis();
+  time2 = millis();
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
 
+  while(Serial.available() > 0) // Don't read unless
+  {
+    Serial.println(Serial.readString());
+  }
+
+  delay(1000);
+  //LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
 }
