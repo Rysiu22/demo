@@ -2,13 +2,19 @@
 czas pisania
 2020.03.28 - 2,5h
 2020.03.29 - 1,5h
-2020.04.03 - 2,5h
+2020.04.03 - 3,5h
 */
 // https://github.com/z3t0/Arduino-IRremote
 #include <IRremote.h>
 
 // https://github.com/rocketscream/Low-Power
 //#include <LowPower.h>
+
+#include <EEPROM.h>
+#define ADDRESS_UINT16_START_COUNT 0
+#define ADDRESS_CHAR_LICZNIK1 2
+#define ADDRESS_CHAR_LICZNIK2 3
+
 
 // ustawienie odczytu podczerwieni
 #define irPin A0
@@ -52,6 +58,10 @@ void zmien_stan_wylaczenia_przyciskiem()
     // wykonaj wyłączenie urządzenia
     if(stan_wylaczenia)
     {
+      // zapis wartości do pamięci
+      EEPROM.write(ADDRESS_CHAR_LICZNIK1, (char)encoder1_licznik);
+      EEPROM.write(ADDRESS_CHAR_LICZNIK2, (char)encoder2_licznik);
+
       ustaw_pin_wyjscia1(-1);
       ustaw_pin_wyjscia2(-1);
       digitalWrite(pin_on_of_wyjscie, LOW);
@@ -205,6 +215,10 @@ void command(decode_results results)
       // wykonaj wyłączenie urządzenia
       if(stan_wylaczenia)
       {
+        // zapis wartości do pamięci
+        EEPROM.write(ADDRESS_CHAR_LICZNIK1, (char)encoder1_licznik);
+        EEPROM.write(ADDRESS_CHAR_LICZNIK2, (char)encoder2_licznik);
+
         ustaw_pin_wyjscia1(-1);
         ustaw_pin_wyjscia2(-1);      
         digitalWrite(pin_on_of_wyjscie, LOW);
@@ -288,6 +302,20 @@ void command(decode_results results)
   }
 };
 
+// obsługa pamięci
+
+uint16_t read_int(int addr_pair)
+{
+  uint16_t value = ((uint16_t)EEPROM.read(addr_pair) << 8) | EEPROM.read(addr_pair+1);
+  return value;
+}
+
+void write_int(int addr_pair, uint16_t value)
+{  
+  EEPROM.write(addr_pair, (char)(value >> 8));
+  EEPROM.write(addr_pair+1, (char)value);
+}
+
 // info o kompilacji wgrywanego projektu
 void display_Running_Sketch (void)
 {
@@ -324,7 +352,6 @@ void setup() {
     pinMode(pin_wyjscia2[i],OUTPUT);
   }
 
-
   //dodanie przerwania, funkcja wywoływana po wykryciu zbocza opadającego
   attachInterrupt(digitalPinToInterrupt(encoder1_pin_a), encoder1_zlicz, FALLING);
   attachInterrupt(digitalPinToInterrupt(encoder2_pin_a), encoder2_zlicz, FALLING);
@@ -332,6 +359,20 @@ void setup() {
   Serial.begin(9600);
   delay(100);
   display_Running_Sketch();
+
+  write_int(ADDRESS_UINT16_START_COUNT, read_int(ADDRESS_UINT16_START_COUNT) + 1);
+
+  Serial.print("Start count: ");
+  Serial.println(read_int(ADDRESS_UINT16_START_COUNT));
+
+  encoder1_licznik = EEPROM.read(ADDRESS_CHAR_LICZNIK1);
+  Serial.print("encoder1_licznik (0-7): ");
+  Serial.println(EEPROM.read(ADDRESS_CHAR_LICZNIK1));
+
+  encoder2_licznik = EEPROM.read(ADDRESS_CHAR_LICZNIK2);
+  Serial.print("encoder2_licznik (0-2): ");
+  Serial.println(EEPROM.read(ADDRESS_CHAR_LICZNIK2));
+  
 
   irrecv.enableIRIn();
 
@@ -347,7 +388,37 @@ void loop() {
   // echo serial
   while(Serial.available() > 0) // Don't read unless
   {
-    Serial.println(Serial.readString());
+    static String incomingString;
+    incomingString = Serial.readString();
+    incomingString.toLowerCase();
+    incomingString.trim(); //escape spaces
+
+    if(incomingString == "help")
+    {
+      Serial.println("help - tekst pomocy");
+      Serial.println("r0 - fabryczny reset EEPROM (FFFF)");
+      Serial.println("r1 - startowy reset EEPROM (0000)");
+    }
+    else if(incomingString == "r0")
+    {
+      write_int(0, 65535);
+      write_int(2, 65535);
+      write_int(4, 65535);
+      Serial.println("r0 - ok");
+      resetFunc(); //call reset
+    }
+    else if(incomingString == "r1")
+    {
+      write_int(0, 0);
+      write_int(2, 0);
+      write_int(4, 0);
+      Serial.println("r1 - ok");
+      resetFunc(); //call reset
+    }
+    else
+    {
+      Serial.println(incomingString);
+    }
   }
 
    // odczyt kodów podczerwieni
