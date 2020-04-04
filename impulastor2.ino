@@ -2,7 +2,7 @@
 czas pisania
 2020.03.28 - 2,5h
 2020.03.29 - 1,5h
-2020.04.03 - 1h
+2020.04.03 - 2,5h
 */
 // https://github.com/z3t0/Arduino-IRremote
 #include <IRremote.h>
@@ -14,6 +14,12 @@ czas pisania
 #define irPin A0
 IRrecv irrecv(irPin);
 decode_results results;
+
+// pin włącz/wyłącz
+bool stan_wylaczenia = true;
+bool stan_pin_on_off_switch = HIGH;
+int pin_on_off_switch = A4;
+int pin_on_of_wyjscie = A5;
 
 // konfiguracja pinów enkoderów
 int encoder1_pin_a = 2; //D2 pin pod przerwanie
@@ -35,9 +41,50 @@ int encoder2_licznik = -1;
 unsigned long time1 = 0;
 unsigned long time2 = 0;
 
+void zmien_stan_wylaczenia_przyciskiem()
+{
+  // odczyt włączenia
+  if( digitalRead(pin_on_off_switch) == LOW )
+  {
+    // zmienia stan z wyłączony na włączony i odwrotnie
+    stan_wylaczenia = ! stan_wylaczenia;
+
+    // wykonaj wyłączenie urządzenia
+    if(stan_wylaczenia)
+    {
+      ustaw_pin_wyjscia1(-1);
+      ustaw_pin_wyjscia2(-1);
+      digitalWrite(pin_on_of_wyjscie, LOW);
+
+      // opóźnienie na włączenie. Czeka aż switch zostanie puszczony.
+      while(digitalRead(pin_on_off_switch) == LOW)
+      {
+        delay(1000);
+      }
+    }
+    // wykonaj włącznie urządzenia
+    else
+    {
+      digitalWrite(pin_on_of_wyjscie, HIGH);
+      ustaw_pin_wyjscia1(encoder1_licznik);
+      ustaw_pin_wyjscia2(encoder2_licznik);
+
+      // opóźnienie na wyłączenie. Czeka aż switch zostanie puszczony
+      while(digitalRead(pin_on_off_switch) == LOW)
+      {
+        delay(1000);
+      }
+    }
+  }
+}
+
 // funkcje wywoływane podczas przerwania
 void encoder1_zlicz()
 {
+  // blokada wykonywania gdy urządzenie jest wyłączone
+  if(stan_wylaczenia)
+    return;
+
   if((millis() - time1) > 50)
   {
     static int kierunek = 1;
@@ -71,6 +118,10 @@ void encoder1_zlicz()
 
 void encoder2_zlicz()
 {
+  // blokada wykonywania gdy urządzenie jest wyłączone
+  if(stan_wylaczenia)
+    return;
+
   if((millis() - time2) > 50)
   {
     static int kierunek = 1;
@@ -137,7 +188,8 @@ void(* resetFunc) (void) = 0;//declare reset function at address 0
 
 // polecenia dla podczerwieni
 void command(decode_results results)
-{    
+{
+  // obsługa włączenia i wyłączenia
   switch(results.value)
   {
     // RC6 philips
@@ -145,9 +197,43 @@ void command(decode_results results)
     case 0x1000C:
     // NEC TV
     case 0xFD00FF:
-      resetFunc(); //call reset
-      break;
+      //resetFunc(); //call reset
 
+      // zmienia stan z wyłączony na włączony i odwrotnie
+      stan_wylaczenia = ! stan_wylaczenia;
+
+      // wykonaj wyłączenie urządzenia
+      if(stan_wylaczenia)
+      {
+        ustaw_pin_wyjscia1(-1);
+        ustaw_pin_wyjscia2(-1);      
+        digitalWrite(pin_on_of_wyjscie, LOW);
+
+        // opóźnienie na włączenie
+        delay(1000);
+      }
+      // wykonaj włącznie urządzenia
+      else
+      {
+        digitalWrite(pin_on_of_wyjscie, HIGH);
+        ustaw_pin_wyjscia1(encoder1_licznik);
+        ustaw_pin_wyjscia2(encoder2_licznik);
+
+        // opóźnienie na wyłączenie
+        delay(1000);
+      }
+      break;
+    default:
+      break;
+  }
+
+  // blokada wykonywania gdy urządzenie jest wyłączone
+  if(stan_wylaczenia)
+    return;
+
+  // obsługa pozostałych opcji sterowania
+  switch(results.value)
+  {
     // Sterowaniem pinami wyjścia1 zwiększanie
     // RC6 philips
     case 0x5B:
@@ -186,7 +272,7 @@ void command(decode_results results)
     case 0x59:
     case 0x10059:
     // NEC TV
-    case 0xFD08F7:
+    case 0xFD28D7:
       if(--encoder2_licznik <= 0)
         encoder2_licznik = 0;
       ustaw_pin_wyjscia2(encoder2_licznik);
@@ -220,6 +306,11 @@ void setup() {
   pinMode(encoder2_pin_a,INPUT_PULLUP);
   pinMode(encoder2_pin_b,INPUT_PULLUP);
 
+  // pin włączenie i wyłącznia
+  pinMode(pin_on_off_switch,INPUT_PULLUP);
+  digitalWrite(pin_on_of_wyjscie, LOW);
+  pinMode(pin_on_of_wyjscie,OUTPUT);
+
   // ustatawienie i konfiguracja pinów wyjściowych 1
   for(int i = 0; i < pin_wyjscia1_sizeof; i++)
   {
@@ -249,6 +340,9 @@ void setup() {
 }
 
 void loop() {
+
+  // odczyt włączenia
+  zmien_stan_wylaczenia_przyciskiem();
 
   // echo serial
   while(Serial.available() > 0) // Don't read unless
