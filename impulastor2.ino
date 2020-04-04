@@ -2,6 +2,7 @@
 czas pisania
 2020.03.28 - 2,5h
 2020.03.29 - 1,5h
+2020.04.03 - 1h
 */
 // https://github.com/z3t0/Arduino-IRremote
 #include <IRremote.h>
@@ -21,9 +22,12 @@ int encoder2_pin_a = 3; //D3 pin pod przerwanie
 int encoder2_pin_b = 5;
 
 // konfiguracja pinów wyjciowych
-int pin_wyjscia[] = {6,7,8,9,10,11,12,13};
-//int pin_wyjscia[] = {A0,A1,A2,A3,A4,A5,A6,A7};
-int pin_wyjscia_sizeof = (sizeof(pin_wyjscia)/sizeof(pin_wyjscia[0])); // nie zmieniać, samemu oblicza prawidłową wartość
+int pin_wyjscia1[] = {6,7,8,9,10,11,12,13};
+int pin_wyjscia2[] = {A1,A2,A3};
+
+// nie zmieniać, samemu oblicza prawidłową wartość
+int pin_wyjscia1_sizeof = (sizeof(pin_wyjscia1)/sizeof(pin_wyjscia1[0]));
+int pin_wyjscia2_sizeof = (sizeof(pin_wyjscia2)/sizeof(pin_wyjscia2[0]));
 
 // przechowanie liczników
 int encoder1_licznik = -1;
@@ -45,10 +49,10 @@ void encoder1_zlicz()
       encoder1_licznik += kierunek;
 
     // zapętlanie ze zmianą kierunku
-    if(encoder1_licznik >= (pin_wyjscia_sizeof-1))
+    if(encoder1_licznik >= (pin_wyjscia1_sizeof-1))
     {
       kierunek = -kierunek;
-      encoder1_licznik = (pin_wyjscia_sizeof-1);
+      encoder1_licznik = (pin_wyjscia1_sizeof-1);
     }
     if(encoder1_licznik <= 0)
     {
@@ -57,7 +61,7 @@ void encoder1_zlicz()
     }
   
     // ustawienie wyjść
-    ustaw_wyjscie(encoder1_licznik);
+    ustaw_pin_wyjscia1(encoder1_licznik);
 
     Serial.print("A");
     Serial.println(encoder1_licznik);
@@ -77,10 +81,10 @@ void encoder2_zlicz()
       encoder2_licznik += kierunek;
   
     // zapętlanie ze zmianą kierunku
-    if(encoder2_licznik >= (pin_wyjscia_sizeof-1))
+    if(encoder2_licznik >= (pin_wyjscia2_sizeof-1))
     {
       kierunek = -kierunek;
-      encoder2_licznik = (pin_wyjscia_sizeof-1);
+      encoder2_licznik = (pin_wyjscia2_sizeof-1);
     }
     if(encoder2_licznik <= 0)
     {
@@ -88,8 +92,8 @@ void encoder2_zlicz()
       encoder2_licznik = 0;
     }
   
-    // ustawienie wyjść
-    ustaw_wyjscie(encoder2_licznik);
+    // ustawienie wejść
+    ustaw_pin_wyjscia2(encoder2_licznik);
   
     Serial.print("B");
     Serial.println(encoder2_licznik);
@@ -97,17 +101,33 @@ void encoder2_zlicz()
   time2 = millis();
 }
 
-void ustaw_wyjscie(int kod)
+
+void ustaw_pin_wyjscia1(int kod) // powielanie takiego samego kodu, do optymalizacji
 {
-  for(int i = 0; i < pin_wyjscia_sizeof; i++)
+  for(int i = 0; i < pin_wyjscia1_sizeof; i++)
   {
     if(kod == i)
     {
-      digitalWrite(pin_wyjscia[i], HIGH);
+      digitalWrite(pin_wyjscia1[i], HIGH);
     }
     else
     {
-      digitalWrite(pin_wyjscia[i], LOW);
+      digitalWrite(pin_wyjscia1[i], LOW);
+    }
+  }
+}
+
+void ustaw_pin_wyjscia2(int kod) // powielanie takiego samego kodu, do optymalizacji
+{
+  for(int i = 0; i < pin_wyjscia2_sizeof; i++)
+  {
+    if(kod == i)
+    {
+      digitalWrite(pin_wyjscia2[i], HIGH);
+    }
+    else
+    {
+      digitalWrite(pin_wyjscia2[i], LOW);
     }
   }
 }
@@ -128,16 +148,18 @@ void command(decode_results results)
       resetFunc(); //call reset
       break;
 
+    // Sterowaniem pinami wyjścia1 zwiększanie
     // RC6 philips
     case 0x5B:
     case 0x1005B:
     // NEC TV
     case 0xFD48B7:
-      if(++encoder1_licznik >= (pin_wyjscia_sizeof-1))
-        encoder1_licznik = (pin_wyjscia_sizeof-1);
-      ustaw_wyjscie(encoder1_licznik);
+      if(++encoder1_licznik >= (pin_wyjscia1_sizeof-1))
+        encoder1_licznik = (pin_wyjscia1_sizeof-1);
+      ustaw_pin_wyjscia1(encoder1_licznik);
       break;
 
+    // Sterowaniem pinami wyjścia1 zmniejszanie
     // RC6 philips
     case 0x5A:
     case 0x1005A:
@@ -145,9 +167,32 @@ void command(decode_results results)
     case 0xFD8877:
       if(--encoder1_licznik <= 0)
         encoder1_licznik = 0;
-      ustaw_wyjscie(encoder1_licznik);
+      ustaw_pin_wyjscia1(encoder1_licznik);
       break;
 
+    // Sterowaniem pinami wyjścia2 zwiększanie
+    // RC6 philips
+    case 0x58:
+    case 0x10058:
+    // NEC TV
+    case 0xFDC837:
+      if(++encoder2_licznik >= (pin_wyjscia2_sizeof-1))
+        encoder2_licznik = (pin_wyjscia2_sizeof-1);
+      ustaw_pin_wyjscia2(encoder2_licznik);
+      break;
+
+    // Sterowaniem pinami wyjścia2 zmniejszanie
+    // RC6 philips
+    case 0x59:
+    case 0x10059:
+    // NEC TV
+    case 0xFD08F7:
+      if(--encoder2_licznik <= 0)
+        encoder2_licznik = 0;
+      ustaw_pin_wyjscia2(encoder2_licznik);
+      break;
+
+    // inne
     case 0xFFFFFFFF:
       // powtórz ostatnie polecenie
       break;
@@ -175,12 +220,19 @@ void setup() {
   pinMode(encoder2_pin_a,INPUT_PULLUP);
   pinMode(encoder2_pin_b,INPUT_PULLUP);
 
-  // ustatawienie i konfiguracja pinów wyjściowych
-  for(int i = 0; i < (sizeof(pin_wyjscia)/sizeof(pin_wyjscia[0])); i++)
+  // ustatawienie i konfiguracja pinów wyjściowych 1
+  for(int i = 0; i < pin_wyjscia1_sizeof; i++)
   {
-    digitalWrite(pin_wyjscia[i], LOW);
-    pinMode(pin_wyjscia[i],OUTPUT);
+    digitalWrite(pin_wyjscia1[i], LOW);
+    pinMode(pin_wyjscia1[i],OUTPUT);
   }
+  // ustatawienie i konfiguracja pinów wyjściowych 2
+  for(int i = 0; i < pin_wyjscia2_sizeof; i++)
+  {
+    digitalWrite(pin_wyjscia2[i], LOW);
+    pinMode(pin_wyjscia2[i],OUTPUT);
+  }
+
 
   //dodanie przerwania, funkcja wywoływana po wykryciu zbocza opadającego
   attachInterrupt(digitalPinToInterrupt(encoder1_pin_a), encoder1_zlicz, FALLING);
@@ -198,11 +250,13 @@ void setup() {
 
 void loop() {
 
+  // echo serial
   while(Serial.available() > 0) // Don't read unless
   {
     Serial.println(Serial.readString());
   }
 
+   // odczyt kodów podczerwieni
    if (irrecv.decode(&results)) 
    {
       if (results.decode_type == NEC) {
