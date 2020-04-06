@@ -3,6 +3,11 @@ czas pisania
 2020.03.28 - 2,5h
 2020.03.29 - 1,5h
 2020.04.03 - 3,5h
+2020.04.06 - 30min
+
+DC Current per I/O Pin recommended limit: <35mA
+DC Current per VCC and GND Pins: 200.0 mA
+Overall DC current limit for all IO pins put together: 200 mA
 */
 // https://github.com/z3t0/Arduino-IRremote
 #include <IRremote.h>
@@ -23,7 +28,6 @@ decode_results results;
 
 // pin włącz/wyłącz
 bool stan_wylaczenia = true;
-bool stan_pin_on_off_switch = HIGH;
 int pin_on_off_switch = A4;
 int pin_on_of_wyjscie = A5;
 
@@ -64,7 +68,7 @@ void zmien_stan_wylaczenia_przyciskiem()
 
       ustaw_pin_wyjscia1(-1);
       ustaw_pin_wyjscia2(-1);
-      digitalWrite(pin_on_of_wyjscie, LOW);
+      digitalWrite(pin_on_of_wyjscie, HIGH);
 
       // opóźnienie na włączenie. Czeka aż switch zostanie puszczony.
       while(digitalRead(pin_on_off_switch) == LOW)
@@ -75,7 +79,7 @@ void zmien_stan_wylaczenia_przyciskiem()
     // wykonaj włącznie urządzenia
     else
     {
-      digitalWrite(pin_on_of_wyjscie, HIGH);
+      digitalWrite(pin_on_of_wyjscie, LOW);
       ustaw_pin_wyjscia1(encoder1_licznik);
       ustaw_pin_wyjscia2(encoder2_licznik);
 
@@ -169,11 +173,11 @@ void ustaw_pin_wyjscia1(int kod) // powielanie takiego samego kodu, do optymaliz
   {
     if(kod == i)
     {
-      digitalWrite(pin_wyjscia1[i], HIGH);
+      digitalWrite(pin_wyjscia1[i], LOW);
     }
     else
     {
-      digitalWrite(pin_wyjscia1[i], LOW);
+      digitalWrite(pin_wyjscia1[i], HIGH);
     }
   }
 }
@@ -184,11 +188,11 @@ void ustaw_pin_wyjscia2(int kod) // powielanie takiego samego kodu, do optymaliz
   {
     if(kod == i)
     {
-      digitalWrite(pin_wyjscia2[i], HIGH);
+      digitalWrite(pin_wyjscia2[i], LOW);
     }
     else
     {
-      digitalWrite(pin_wyjscia2[i], LOW);
+      digitalWrite(pin_wyjscia2[i], HIGH);
     }
   }
 }
@@ -221,7 +225,7 @@ void command(decode_results results)
 
         ustaw_pin_wyjscia1(-1);
         ustaw_pin_wyjscia2(-1);      
-        digitalWrite(pin_on_of_wyjscie, LOW);
+        digitalWrite(pin_on_of_wyjscie, HIGH);
 
         // opóźnienie na włączenie
         delay(1000);
@@ -229,7 +233,7 @@ void command(decode_results results)
       // wykonaj włącznie urządzenia
       else
       {
-        digitalWrite(pin_on_of_wyjscie, HIGH);
+        digitalWrite(pin_on_of_wyjscie, LOW);
         ustaw_pin_wyjscia1(encoder1_licznik);
         ustaw_pin_wyjscia2(encoder2_licznik);
 
@@ -336,19 +340,19 @@ void setup() {
 
   // pin włączenie i wyłącznia
   pinMode(pin_on_off_switch,INPUT_PULLUP);
-  digitalWrite(pin_on_of_wyjscie, LOW);
+  digitalWrite(pin_on_of_wyjscie, HIGH);
   pinMode(pin_on_of_wyjscie,OUTPUT);
 
   // ustatawienie i konfiguracja pinów wyjściowych 1
   for(int i = 0; i < pin_wyjscia1_sizeof; i++)
   {
-    digitalWrite(pin_wyjscia1[i], LOW);
+    digitalWrite(pin_wyjscia1[i], HIGH);
     pinMode(pin_wyjscia1[i],OUTPUT);
   }
   // ustatawienie i konfiguracja pinów wyjściowych 2
   for(int i = 0; i < pin_wyjscia2_sizeof; i++)
   {
-    digitalWrite(pin_wyjscia2[i], LOW);
+    digitalWrite(pin_wyjscia2[i], HIGH);
     pinMode(pin_wyjscia2[i],OUTPUT);
   }
 
