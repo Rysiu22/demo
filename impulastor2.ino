@@ -3,7 +3,7 @@ czas pisania
 2020.03.28 - 2,5h
 2020.03.29 - 1,5h
 2020.04.03 - 3,5h
-2020.04.06 - 2,5h
+2020.04.06 - 5h
 
 DC Current per I/O Pin recommended limit: <35mA
 DC Current per VCC and GND Pins: 200.0 mA
@@ -34,13 +34,19 @@ int pin_on_of_wyjscie = A5;
 
 // konfiguracja pinów enkoderów
 int encoder1_pin_a = 2; //D2 pin pod przerwanie
-int encoder1_pin_b = 4;
+int encoder1_pin_b = A6; // A6,A7 pin tylko analogowy bez pull-up
 int encoder2_pin_a = 3; //D3 pin pod przerwanie
-int encoder2_pin_b = 5;
+int encoder2_pin_b = A7; // A6,A7 pin tylko analogowy bez pull-up
+int analog_low_high = 512; // granica stanów LOW/HIGH od 0 - 1023
 
 // konfiguracja pinów wyjciowych
 int pin_wyjscia1[] = {6,7,8,9,10,11,12,13};
 int pin_wyjscia2[] = {A1,A2,A3};
+
+// konfiguracja pinów silniczka
+int pin_silnika_kierunek1 = 4;
+int pin_silnika_kierunek2 = 5;
+unsigned long silnik_czas = 250; // ms
 
 // TU KONIEC ZMIENNYCH DO EDYCJI
 
@@ -61,6 +67,7 @@ int encoder2_licznik = -1;
 unsigned long time1 = 0;
 unsigned long time2 = 0;
 unsigned long time3 = 0;
+unsigned long time4 = 0;
 
 void zmien_stan_wylaczenia_przyciskiem()
 {
@@ -119,7 +126,8 @@ void encoder1_zlicz()
     static int kierunek = 1;
     
     // zliczanie impulsów
-    if(digitalRead(encoder1_pin_b))
+    //if(digitalRead(encoder1_pin_b))
+    if(analogRead(encoder1_pin_b) > analog_low_high) // tylko dla pinów analogowych A6,A7
       encoder1_licznik -= kierunek;
     else
       encoder1_licznik += kierunek;
@@ -155,7 +163,8 @@ void encoder2_zlicz()
   {
     static int kierunek = 1;
     // zliczanie impulsów
-    if(digitalRead(encoder2_pin_b))
+    //if(digitalRead(encoder2_pin_b))
+    if(analogRead(encoder2_pin_b) > analog_low_high) // tylko dla pinów analogowych A6,A7
       encoder2_licznik -= kierunek;
     else
       encoder2_licznik += kierunek;
@@ -315,12 +324,18 @@ void polecenia_ir(unsigned long czas_blokady_w_ms)
 
 void command(decode_results results)
 {
+  static decode_results last_results;
+
   // obsługa włączenia i wyłączenia
   switch(results.value)
   {
     // RC6 philips
     case 0xC:
     case 0x1000C:
+      // nie zapętlaj wyłączania
+      if(results.value == last_results.value)
+        break;
+      last_results = results;
     // NEC TV
     case 0xFD00FF:
       //resetFunc(); //call reset
@@ -364,6 +379,10 @@ void command(decode_results results)
   // blokada wykonywania gdy urządzenie jest wyłączone
   if(stan_wylaczenia)
     return;
+
+  // zapamiętywanie ostatnie polecenia NEC, poza poleceniem powtarzania
+  if (results.decode_type == NEC && results.value != 0xFFFFFFFF)
+    last_results = results;
 
   // obsługa pozostałych opcji sterowania
   switch(results.value)
@@ -412,9 +431,36 @@ void command(decode_results results)
       ustaw_pin_wyjscia2(encoder2_licznik);
       break;
 
+    // Sterowaniem pinami silnika zwiękasznie głośności
+    // RC6 philips
+    case 0x10:
+    case 0x10010:
+    // NEC TV
+    case 0xFD12ED:
+      digitalWrite(pin_silnika_kierunek2, LOW);
+      digitalWrite(pin_silnika_kierunek1, HIGH);
+      time4 = millis();
+      break;
+
+    // Sterowaniem pinami silnika zmniejszanie głośności
+    // RC6 philips
+    case 0x11:
+    case 0x10011:
+    // NEC TV
+    case 0xFD926D:
+      digitalWrite(pin_silnika_kierunek1, LOW);
+      digitalWrite(pin_silnika_kierunek2, HIGH);
+      time4 = millis();
+      break;
+
     // inne
     case 0xFFFFFFFF:
-      // powtórz ostatnie polecenie
+      // nie powtarzej kodów nie NEC i kodów wyłączenia
+      // tu umieścić kody nie podlegające wielokrotnemu powtarzaniu
+      if(last_results.decode_type != NEC || last_results.value == 0xFD00FF)
+        break;
+      // powtórz ostatnie polecenie, ups wywołanie rekurencyjne
+      command(last_results);
       break;
 
     default:
@@ -459,18 +505,23 @@ void setup() {
   digitalWrite(pin_on_of_wyjscie, HIGH);
   pinMode(pin_on_of_wyjscie,OUTPUT);
 
-  // ustatawienie i konfiguracja pinów wyjściowych 1
+  // ustawienie i konfiguracja pinów wyjściowych 1
   for(int i = 0; i < pin_wyjscia1_sizeof; i++)
   {
     digitalWrite(pin_wyjscia1[i], HIGH);
     pinMode(pin_wyjscia1[i],OUTPUT);
   }
-  // ustatawienie i konfiguracja pinów wyjściowych 2
+  // ustawienie i konfiguracja pinów wyjściowych 2
   for(int i = 0; i < pin_wyjscia2_sizeof; i++)
   {
     digitalWrite(pin_wyjscia2[i], HIGH);
     pinMode(pin_wyjscia2[i],OUTPUT);
   }
+  // ustawienie i konfiguracja pinów silnika
+  digitalWrite(pin_silnika_kierunek1, LOW);
+  pinMode(pin_silnika_kierunek1, OUTPUT);
+  digitalWrite(pin_silnika_kierunek2, LOW);
+  pinMode(pin_silnika_kierunek2, OUTPUT);
 
   //dodanie przerwania, funkcja wywoływana po wykryciu zbocza opadającego
   attachInterrupt(digitalPinToInterrupt(encoder1_pin_a), encoder1_zlicz, FALLING);
@@ -502,6 +553,7 @@ void setup() {
   time1 = millis();
   time2 = millis();
   time3 = millis();
+  time4 = millis();
 
 
   if(! stan_wylaczenia)
@@ -514,6 +566,8 @@ void setup() {
   Serial.print("time boot: ");
   Serial.print(millis());
   Serial.println("ms");
+
+  Serial.println("help - wyswietli dostepne polecenia");
 }
 
 void loop() {
@@ -531,7 +585,14 @@ void loop() {
   polecenia_serial();
 
   // odczyt kodów podczerwieni
-  polecenia_ir(50); // ms
+  polecenia_ir(100); // ms
+
+  // zerowanie ustawienia silnika
+  if(millis()-time4 > silnik_czas)
+  {
+    digitalWrite(pin_silnika_kierunek1, LOW);
+    digitalWrite(pin_silnika_kierunek2, LOW);    
+  }
 
   delay(120);
   //LowPower.powerDown(SLEEP_60MS, ADC_OFF, BOD_OFF); //15 ms, 30 ms, 60 ms, 120 ms, 250 ms, 500 ms, 1 s, 2 s, 4 s, 8 s, and forever
