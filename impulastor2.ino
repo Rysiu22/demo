@@ -3,11 +3,13 @@ czas pisania
 2020.03.28 - 2,5h
 2020.03.29 - 1,5h
 2020.04.03 - 3,5h
-2020.04.06 - 30min
+2020.04.06 - 2,5h
 
 DC Current per I/O Pin recommended limit: <35mA
 DC Current per VCC and GND Pins: 200.0 mA
 Overall DC current limit for all IO pins put together: 200 mA
+
+EEPROM 100.000 write cycles per address
 */
 // https://github.com/z3t0/Arduino-IRremote
 #include <IRremote.h>
@@ -15,13 +17,7 @@ Overall DC current limit for all IO pins put together: 200 mA
 // https://github.com/rocketscream/Low-Power
 //#include <LowPower.h>
 
-#include <EEPROM.h>
-#define ADDRESS_UINT16_START_COUNT 0
-#define ADDRESS_CHAR_LICZNIK1 2
-#define ADDRESS_CHAR_LICZNIK2 3
-
-
-// ustawienie odczytu podczerwieni
+// ustawienie pinu odczytu podczerwieni
 #define irPin A0
 IRrecv irrecv(irPin);
 decode_results results;
@@ -30,6 +26,11 @@ decode_results results;
 bool stan_wylaczenia = true;
 int pin_on_off_switch = A4;
 int pin_on_of_wyjscie = A5;
+#define CZAS_BLOKADY_ON_OFF_MS 1000
+
+// co jaki czas porównanie i zapis do eepromu, 30s
+// 100000cykli/60sekund/60minut = 27godzin zmieniania co sekunde
+#define KOPIA_DO_EEPROM_MS 30000
 
 // konfiguracja pinów enkoderów
 int encoder1_pin_a = 2; //D2 pin pod przerwanie
@@ -41,6 +42,15 @@ int encoder2_pin_b = 5;
 int pin_wyjscia1[] = {6,7,8,9,10,11,12,13};
 int pin_wyjscia2[] = {A1,A2,A3};
 
+// TU KONIEC ZMIENNYCH DO EDYCJI
+
+// Adresy użyte w eepromie
+#include <EEPROM.h>
+#define ADDRESS_UINT16_START_COUNT 0
+#define ADDRESS_CHAR_LICZNIK1 2
+#define ADDRESS_CHAR_LICZNIK2 3
+#define ADDRESS_CHAR_STAN_WYLACZENIA 4
+
 // nie zmieniać, samemu oblicza prawidłową wartość
 int pin_wyjscia1_sizeof = (sizeof(pin_wyjscia1)/sizeof(pin_wyjscia1[0]));
 int pin_wyjscia2_sizeof = (sizeof(pin_wyjscia2)/sizeof(pin_wyjscia2[0]));
@@ -50,6 +60,7 @@ int encoder1_licznik = -1;
 int encoder2_licznik = -1;
 unsigned long time1 = 0;
 unsigned long time2 = 0;
+unsigned long time3 = 0;
 
 void zmien_stan_wylaczenia_przyciskiem()
 {
@@ -62,10 +73,10 @@ void zmien_stan_wylaczenia_przyciskiem()
     // wykonaj wyłączenie urządzenia
     if(stan_wylaczenia)
     {
-      // zapis wartości do pamięci
-      EEPROM.write(ADDRESS_CHAR_LICZNIK1, (char)encoder1_licznik);
-      EEPROM.write(ADDRESS_CHAR_LICZNIK2, (char)encoder2_licznik);
+      // zapis konfiguracji do pamięci EEPROM
+      zapamietaj_ustawienia();
 
+      // zerowanie pinów
       ustaw_pin_wyjscia1(-1);
       ustaw_pin_wyjscia2(-1);
       digitalWrite(pin_on_of_wyjscie, HIGH);
@@ -73,12 +84,16 @@ void zmien_stan_wylaczenia_przyciskiem()
       // opóźnienie na włączenie. Czeka aż switch zostanie puszczony.
       while(digitalRead(pin_on_off_switch) == LOW)
       {
-        delay(1000);
+        delay(CZAS_BLOKADY_ON_OFF_MS);
       }
     }
     // wykonaj włącznie urządzenia
     else
     {
+      // zapis konfiguracji do pamięci EEPROM
+      zapamietaj_ustawienia();
+
+      // ustawienie pinów
       digitalWrite(pin_on_of_wyjscie, LOW);
       ustaw_pin_wyjscia1(encoder1_licznik);
       ustaw_pin_wyjscia2(encoder2_licznik);
@@ -86,7 +101,7 @@ void zmien_stan_wylaczenia_przyciskiem()
       // opóźnienie na wyłączenie. Czeka aż switch zostanie puszczony
       while(digitalRead(pin_on_off_switch) == LOW)
       {
-        delay(1000);
+        delay(CZAS_BLOKADY_ON_OFF_MS);
       }
     }
   }
@@ -197,10 +212,107 @@ void ustaw_pin_wyjscia2(int kod) // powielanie takiego samego kodu, do optymaliz
   }
 }
 
+// zapis konfiguracji do pamięci EEPROM
+bool zapamietaj_ustawienia()
+{
+  unsigned long time_write = millis();
+  int count_writer = 0;
+  // zapis wartości do pamięci
+  if(!stan_wylaczenia && encoder1_licznik != EEPROM.read(ADDRESS_CHAR_LICZNIK1))
+  {
+    EEPROM.write(ADDRESS_CHAR_LICZNIK1, (char)encoder1_licznik);
+    count_writer++;
+  }
+  if(!stan_wylaczenia && encoder2_licznik != EEPROM.read(ADDRESS_CHAR_LICZNIK2))
+  {
+    EEPROM.write(ADDRESS_CHAR_LICZNIK2, (char)encoder2_licznik);
+    count_writer++;
+  }
+  if(stan_wylaczenia != EEPROM.read(ADDRESS_CHAR_STAN_WYLACZENIA))
+  {
+    EEPROM.write(ADDRESS_CHAR_STAN_WYLACZENIA, (char)stan_wylaczenia);
+    count_writer++;
+  }
+
+  if(count_writer > 0)
+  {
+    Serial.print(count_writer);
+    Serial.print(" write EEPROM time(ms): ");
+    Serial.println(millis() - time_write);
+  }
+}
+
 // reset programowy
 void(* resetFunc) (void) = 0;//declare reset function at address 0
 
+// polecenie dla seriala
+void polecenia_serial()
+{
+  // echo serial
+  while(Serial.available() > 0) // Don't read unless
+  {
+    static String incomingString;
+    incomingString = Serial.readString();
+    incomingString.toLowerCase();
+    incomingString.trim(); //escape spaces
+
+    if(incomingString == "help")
+    {
+      Serial.println("help - tekst pomocy");
+      Serial.println("r0 - fabryczny reset EEPROM (FFFF)");
+      Serial.println("r1 - startowy reset EEPROM (0000)");
+    }
+    else if(incomingString == "r0")
+    {
+      write_int(0, 65535);
+      write_int(2, 65535);
+      write_int(4, 65535);
+      Serial.println("r0 - ok");
+      resetFunc(); //call reset
+    }
+    else if(incomingString == "r1")
+    {
+      write_int(0, 0);
+      write_int(2, 0);
+      write_int(4, 0);
+      Serial.println("r1 - ok");
+      resetFunc(); //call reset
+    }
+    else
+    {
+      Serial.println(incomingString);
+    }
+  }
+}
+
 // polecenia dla podczerwieni
+void polecenia_ir(unsigned long czas_blokady_w_ms)
+{
+   if (irrecv.decode(&results)) 
+   {
+      if (results.decode_type == NEC) {
+        Serial.print("NEC: ");
+      } else if (results.decode_type == SONY) {
+        Serial.print("SONY: ");
+      } else if (results.decode_type == RC5) {
+        Serial.print("RC5: ");
+      } else if (results.decode_type == RC6) {
+        Serial.print("RC6: ");
+      } else if (results.decode_type == UNKNOWN) {
+        Serial.print("UNKNOWN: ");
+      }
+
+      Serial.print("0x");
+      Serial.println(results.value, HEX);
+
+      command(results);
+
+      delay(czas_blokady_w_ms);
+      //LowPower.powerDown(SLEEP_250MS, ADC_OFF, BOD_OFF);
+      irrecv.resume();
+   }  
+}
+
 void command(decode_results results)
 {
   // obsługa włączenia i wyłączenia
@@ -219,26 +331,30 @@ void command(decode_results results)
       // wykonaj wyłączenie urządzenia
       if(stan_wylaczenia)
       {
-        // zapis wartości do pamięci
-        EEPROM.write(ADDRESS_CHAR_LICZNIK1, (char)encoder1_licznik);
-        EEPROM.write(ADDRESS_CHAR_LICZNIK2, (char)encoder2_licznik);
+        // zapis konfiguracji do pamięci EEPROM
+        zapamietaj_ustawienia();
 
+        // zerowanie pinów
         ustaw_pin_wyjscia1(-1);
         ustaw_pin_wyjscia2(-1);      
         digitalWrite(pin_on_of_wyjscie, HIGH);
 
         // opóźnienie na włączenie
-        delay(1000);
+        delay(CZAS_BLOKADY_ON_OFF_MS);
       }
       // wykonaj włącznie urządzenia
       else
       {
+        // zapis konfiguracji do pamięci EEPROM
+        zapamietaj_ustawienia();
+      
+        // ustawienie pinów
         digitalWrite(pin_on_of_wyjscie, LOW);
         ustaw_pin_wyjscia1(encoder1_licznik);
         ustaw_pin_wyjscia2(encoder2_licznik);
 
         // opóźnienie na wyłączenie
-        delay(1000);
+        delay(CZAS_BLOKADY_ON_OFF_MS);
       }
       break;
     default:
@@ -361,7 +477,7 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(encoder2_pin_a), encoder2_zlicz, FALLING);
 
   Serial.begin(9600);
-  delay(100);
+  delay(10);
   display_Running_Sketch();
 
   write_int(ADDRESS_UINT16_START_COUNT, read_int(ADDRESS_UINT16_START_COUNT) + 1);
@@ -376,80 +492,47 @@ void setup() {
   encoder2_licznik = EEPROM.read(ADDRESS_CHAR_LICZNIK2);
   Serial.print("encoder2_licznik (0-2): ");
   Serial.println(EEPROM.read(ADDRESS_CHAR_LICZNIK2));
-  
+
+  stan_wylaczenia = EEPROM.read(ADDRESS_CHAR_STAN_WYLACZENIA);
+  Serial.print("stan_wylaczenia (0=wlaczony,1=wylaczony): ");
+  Serial.println(EEPROM.read(ADDRESS_CHAR_STAN_WYLACZENIA));
 
   irrecv.enableIRIn();
 
   time1 = millis();
   time2 = millis();
+  time3 = millis();
+
+
+  if(! stan_wylaczenia)
+  {
+      digitalWrite(pin_on_of_wyjscie, LOW);
+      ustaw_pin_wyjscia1(encoder1_licznik);
+      ustaw_pin_wyjscia2(encoder2_licznik);
+  }
+
+  Serial.print("time boot: ");
+  Serial.print(millis());
+  Serial.println("ms");
 }
 
 void loop() {
-
   // odczyt włączenia
   zmien_stan_wylaczenia_przyciskiem();
 
-  // echo serial
-  while(Serial.available() > 0) // Don't read unless
+  // zapisuje ustawienia do EEPROM-u
+  if(millis()-time3 > KOPIA_DO_EEPROM_MS)
   {
-    static String incomingString;
-    incomingString = Serial.readString();
-    incomingString.toLowerCase();
-    incomingString.trim(); //escape spaces
-
-    if(incomingString == "help")
-    {
-      Serial.println("help - tekst pomocy");
-      Serial.println("r0 - fabryczny reset EEPROM (FFFF)");
-      Serial.println("r1 - startowy reset EEPROM (0000)");
-    }
-    else if(incomingString == "r0")
-    {
-      write_int(0, 65535);
-      write_int(2, 65535);
-      write_int(4, 65535);
-      Serial.println("r0 - ok");
-      resetFunc(); //call reset
-    }
-    else if(incomingString == "r1")
-    {
-      write_int(0, 0);
-      write_int(2, 0);
-      write_int(4, 0);
-      Serial.println("r1 - ok");
-      resetFunc(); //call reset
-    }
-    else
-    {
-      Serial.println(incomingString);
-    }
+    zapamietaj_ustawienia();
+    time3 = millis();
   }
 
-   // odczyt kodów podczerwieni
-   if (irrecv.decode(&results)) 
-   {
-      if (results.decode_type == NEC) {
-        Serial.print("NEC: ");
-      } else if (results.decode_type == SONY) {
-        Serial.print("SONY: ");
-      } else if (results.decode_type == RC5) {
-        Serial.print("RC5: ");
-      } else if (results.decode_type == RC6) {
-        Serial.print("RC6: ");
-      } else if (results.decode_type == UNKNOWN) {
-        Serial.print("UNKNOWN: ");
-      }
+  // obsługa poleceń dla seriala
+  polecenia_serial();
 
-      Serial.print("0x");
-      Serial.println(results.value, HEX);
+  // odczyt kodów podczerwieni
+  polecenia_ir(50); // ms
 
-      command(results);
-
-      delay(250);
-      //LowPower.powerDown(SLEEP_250MS, ADC_OFF, BOD_OFF);
-      irrecv.resume();
-   }
-
-   delay(50);
-  //LowPower.powerDown(SLEEP_60MS, ADC_OFF, BOD_OFF);
+  delay(120);
+  //LowPower.powerDown(SLEEP_60MS, ADC_OFF, BOD_OFF); //15 ms, 30 ms, 60 ms, 120 ms, 250 ms, 500 ms, 1 s, 2 s, 4 s, 8 s, and forever
 }
