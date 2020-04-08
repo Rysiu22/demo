@@ -4,6 +4,7 @@ czas pisania
 2020.03.29 - 1,5h
 2020.04.03 - 3,5h
 2020.04.06 - 5h
+2020.04.08 - 10min
 
 DC Current per I/O Pin recommended limit: <35mA
 DC Current per VCC and GND Pins: 200.0 mA
@@ -227,6 +228,7 @@ bool zapamietaj_ustawienia()
   unsigned long time_write = millis();
   int count_writer = 0;
   // zapis wartości do pamięci
+  noInterrupts();
   if(!stan_wylaczenia && encoder1_licznik != EEPROM.read(ADDRESS_CHAR_LICZNIK1))
   {
     EEPROM.write(ADDRESS_CHAR_LICZNIK1, (char)encoder1_licznik);
@@ -242,6 +244,7 @@ bool zapamietaj_ustawienia()
     EEPROM.write(ADDRESS_CHAR_STAN_WYLACZENIA, (char)stan_wylaczenia);
     count_writer++;
   }
+  interrupts();
 
   if(count_writer > 0)
   {
@@ -523,10 +526,6 @@ void setup() {
   digitalWrite(pin_silnika_kierunek2, LOW);
   pinMode(pin_silnika_kierunek2, OUTPUT);
 
-  //dodanie przerwania, funkcja wywoływana po wykryciu zbocza opadającego
-  attachInterrupt(digitalPinToInterrupt(encoder1_pin_a), encoder1_zlicz, FALLING);
-  attachInterrupt(digitalPinToInterrupt(encoder2_pin_a), encoder2_zlicz, FALLING);
-
   Serial.begin(9600);
   delay(10);
   display_Running_Sketch();
@@ -562,6 +561,10 @@ void setup() {
       ustaw_pin_wyjscia1(encoder1_licznik);
       ustaw_pin_wyjscia2(encoder2_licznik);
   }
+
+  //dodanie przerwania (dopiero po odczycie z EEPROM-u, funkcja wywoływana po wykryciu zbocza opadającego
+  attachInterrupt(digitalPinToInterrupt(encoder1_pin_a), encoder1_zlicz, FALLING);
+  attachInterrupt(digitalPinToInterrupt(encoder2_pin_a), encoder2_zlicz, FALLING);
 
   Serial.print("time boot: ");
   Serial.print(millis());
